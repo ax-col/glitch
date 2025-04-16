@@ -1,59 +1,55 @@
-const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const express = require('express');
-const fs = require('fs');
+const qrcode = require('qrcode');
 const app = express();
 
-let usuarios = {};
-
-if (fs.existsSync('usuarios.json')) {
-  usuarios = JSON.parse(fs.readFileSync('usuarios.json'));
-}
-
+// Configura almacenamiento local de sesión
 const client = new Client({
-  authStrategy: new LocalAuth(),
-  puppeteer: {
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  }
+    authStrategy: new LocalAuth(), // Guarda sesión en .wwebjs_auth
+    puppeteer: {
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    }
 });
 
-client.on('qr', qr => {
-  qrcode.generate(qr, { small: true });
-  console.log('📲 Escanea el código QR con tu WhatsApp');
+let qrCodeImage = '';
+let isAuthenticated = false;
+
+// Generar QR cuando se solicite vinculación
+client.on('qr', async (qr) => {
+    console.log('[QR] Generado');
+    qrCodeImage = await qrcode.toDataURL(qr);
+    isAuthenticated = false;
 });
 
+// Confirmar que el bot está listo
 client.on('ready', () => {
-  console.log('✅ Bot conectado correctamente');
+    console.log('[BOT] Cliente listo y conectado');
+    isAuthenticated = true;
+    qrCodeImage = '';
 });
 
-client.on('message', message => {
-  const msg = message.body.toLowerCase();
-  const from = message.from;
-
-  if (!usuarios[from]) {
-    usuarios[from] = { registrado: true, fecha: new Date().toISOString() };
-    fs.writeFileSync('usuarios.json', JSON.stringify(usuarios, null, 2));
-    message.reply('👋 ¡Hola! Te he registrado en mi sistema. Escribe *menu* para ver opciones.');
-    return;
-  }
-
-  if (msg === 'hola') {
-    message.reply('¡Hola! Soy tu bot 🤖. Escribe *menu* para ver lo que puedo hacer.');
-  } else if (msg === 'menu') {
-    message.reply(`📋 *Menú de opciones:*
-1. info - Información del bot
-2. ayuda - Cómo usarlo
-3. chiste - Te cuento uno`);
-  } else if (msg === 'info') {
-    message.reply('🤖 Este es un bot de prueba creado en Glitch. Puedes adaptarlo como quieras.');
-  } else if (msg === 'ayuda') {
-    message.reply('🔧 Para interactuar, escribe palabras como *hola*, *menu*, *info*, *chiste*.');
-  } else if (msg === 'chiste') {
-    message.reply('😂 ¿Sabes por qué los programadores odian la playa? ¡Porque hay demasiados bugs!');
-  }
+// Manejo de errores de autenticación
+client.on('auth_failure', (msg) => {
+    console.error('[ERROR] Falló la autenticación:', msg);
+    isAuthenticated = false;
 });
 
+// Inicializa el bot
 client.initialize();
 
-app.get('/', (req, res) => res.send('Bot WhatsApp activo 🔥'));
-app.listen(3000, () => console.log('🌐 Servidor web activo en puerto 3000'));
+// Página principal: muestra QR o estado del bot
+app.get('/', (req, res) => {
+    if (isAuthenticated) {
+        res.send('<h2>✅ Bot ya está vinculado a WhatsApp</h2>');
+    } else if (qrCodeImage) {
+        res.send(`<h2>Escanea el QR para vincular tu WhatsApp</h2><img src="${qrCodeImage}" />`);
+    } else {
+        res.send('<h2>⏳ Generando QR o cargando...</h2>');
+    }
+});
+
+// Puerto que Render asigna automáticamente
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`[WEB] Servidor escuchando en http://localhost:${PORT}`);
+});
